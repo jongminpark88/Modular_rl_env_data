@@ -23,6 +23,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.callbacks import EvalCallback, CallbackList
 from stable_baselines3.common.logger import configure as sb3_configure
+from gymnasium.wrappers import TimeLimit
 import importlib
 import torch
 
@@ -36,6 +37,7 @@ def make_env(env_module: str, xml_filename: Optional[str] = None, render_mode: O
     if xml_filename is None:
         xml_filename = os.path.join(XML_DIR, f"{env_module}.xml")
     env = EnvCls(xml=xml_filename, render_mode=render_mode)
+    env = TimeLimit(env, max_episode_steps=2000)
     return env
 
 
