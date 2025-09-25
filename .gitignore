@@ -1,0 +1,16 @@
+# 학습 산출물
+data/
+checkpoint/
+
+# 로그
+logs/
+*.log
+
+# Python 캐시
+__pycache__/
+*.pyc
+*.pyo
+
+# 기타 불필요 파일
+.DS_Store
+.ipynb_checkpoints/
