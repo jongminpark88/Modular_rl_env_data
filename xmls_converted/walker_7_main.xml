@@ -1,0 +1,73 @@
+<mujoco model="walker_generic">
+  <compiler angle="radian" autolimits="true"/>
+  <option integrator="RK4"/>
+  <visual>
+    <quality shadowsize="2048"/>
+    <headlight ambient="0.4 0.4 0.4" diffuse="0.8 0.8 0.8" specular="0.1 0.1 0.1"/>
+  </visual>
+  <default class="main">
+    <joint limited="true" armature="0.01" damping="0.1"/>
+    <geom conaffinity="0" friction="0.7 0.1 0.1" material="self"/>
+  </default>
+  <asset>
+    <texture type="skybox" name="skybox" builtin="gradient" mark="random" rgb1="0.4 0.6 0.8" rgb2="0 0 0" markrgb="1 1 1" width="800" height="4800"/>
+    <texture type="2d" name="grid" builtin="checker" mark="edge" rgb1="0.1 0.2 0.3" rgb2="0.2 0.3 0.4" markrgb="0.2 0.3 0.4" width="300" height="300"/>
+    <material name="grid" texture="grid" texuniform="true" reflectance="0.2"/>
+    <material name="self" rgba="0.7 0.5 0.3 1"/>
+    <material name="self_default" rgba="0.7 0.5 0.3 1"/>
+    <material name="self_highlight" rgba="0 0.5 0.3 1"/>
+    <material name="effector" rgba="0.7 0.4 0.2 1"/>
+    <material name="effector_default" rgba="0.7 0.4 0.2 1"/>
+    <material name="effector_highlight" rgba="0 0.5 0.3 1"/>
+    <material name="decoration" rgba="0.3 0.5 0.7 1"/>
+    <material name="eye" rgba="0 0.2 1 1"/>
+    <material name="target" rgba="0.6 0.3 0.3 1"/>
+    <material name="target_default" rgba="0.6 0.3 0.3 1"/>
+    <material name="target_highlight" rgba="0.6 0.3 0.3 0.4"/>
+    <material name="site" rgba="0.5 0.5 0.5 0.3"/>
+  </asset>
+  <worldbody>
+    <geom name="floor" size="40 40 40" type="plane" conaffinity="1" material="grid"/>
+    <light pos="0 0 1.3" dir="-0.5547 0 -0.83205" directional="true" cutoff="100" exponent="1" diffuse="1 1 1" specular="0.1 0.1 0.1"/>
+    <body name="torso" pos="0 0 1.6" gravcomp="0">
+      <joint name="rootx" pos="0 0 -1.6" axis="1 0 0" limited="false" type="slide" armature="0" damping="0"/>
+      <joint name="rootz" pos="0 0 -1.6" axis="0 0 1" limited="false" type="slide" ref="1.25" armature="0" damping="0"/>
+      <joint name="rooty" pos="0 0 -0.35" axis="0 1 0" limited="false" armature="0" damping="0"/>
+      <geom name="torso_geom" size="0.07 0.3" pos="0 0 -0.3" type="capsule" friction="0.9 0.1 0.1"/>
+      <camera name="tilted" pos="2.7 3 -0.6" quat="0.660169 -0.660169 0.253331 -0.253331" mode="trackcom"/>
+      <camera name="track" pos="0 3 -0.6" quat="0.707107 -0.707107 0 0" mode="trackcom"/>
+      <body name="left1" pos="0 0 -0.6" gravcomp="0">
+        <joint name="left1_joint" pos="0 0 0" axis="0 -1 0" range="-1.309 1.309"/>
+        <geom name="left1_geom" size="0.056 0.24" pos="0 0 -0.24" type="capsule" friction="0.9 0.1 0.1"/>
+        <body name="left2" pos="0 0 -0.48" gravcomp="0">
+          <joint name="left2_joint" pos="0 0 0" axis="0 -1 0" range="-1.309 1.309"/>
+          <geom name="left2_geom" size="0.0448 0.192" pos="0 0 -0.192" type="capsule" friction="0.9 0.1 0.1"/>
+          <body name="left3" pos="0 0 -0.384" gravcomp="0">
+            <joint name="left3_joint" pos="0 0 0" axis="0 -1 0" range="-1.309 1.309"/>
+            <geom name="left3_geom" size="0.06 0.1" pos="0.1 0 0" quat="0.707107 0 -0.707107 0" type="capsule" friction="0.9 0.1 0.1"/>
+          </body>
+        </body>
+      </body>
+      <body name="right1" pos="0 0 -0.6" gravcomp="0">
+        <joint name="right1_joint" pos="0 0 0" axis="0 -1 0" range="-1.309 1.309"/>
+        <geom name="right1" size="0.056 0.24" pos="0 0 -0.24" type="capsule" friction="0.9 0.1 0.1"/>
+        <body name="right2" pos="0 0 -0.48" gravcomp="0">
+          <joint name="right2_joint" pos="0 0 0" axis="0 -1 0" range="-1.309 1.309"/>
+          <geom name="right2" size="0.0448 0.192" pos="0 0 -0.192" type="capsule" friction="0.9 0.1 0.1"/>
+          <body name="right3" pos="0 0 -0.384" gravcomp="0">
+            <joint name="right3_joint" pos="0 0 0" axis="0 -1 0" range="-1.309 1.309"/>
+            <geom name="right3_geom" size="0.06 0.1" pos="0.1 0 0" quat="0.707107 0 -0.707107 0" type="capsule" friction="0.9 0.1 0.1"/>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <general joint="left1_joint" ctrlrange="-1 1" gear="100 0 0 0 0 0" actdim="0"/>
+    <general joint="left2_joint" ctrlrange="-1 1" gear="100 0 0 0 0 0" actdim="0"/>
+    <general joint="left3_joint" ctrlrange="-1 1" gear="100 0 0 0 0 0" actdim="0"/>
+    <general joint="right1_joint" ctrlrange="-1 1" gear="100 0 0 0 0 0" actdim="0"/>
+    <general joint="right2_joint" ctrlrange="-1 1" gear="100 0 0 0 0 0" actdim="0"/>
+    <general joint="right3_joint" ctrlrange="-1 1" gear="100 0 0 0 0 0" actdim="0"/>
+  </actuator>
+</mujoco>

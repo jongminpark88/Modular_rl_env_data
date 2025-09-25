@@ -1,0 +1,65 @@
+<mujoco model="hopper">
+  <compiler angle="radian" autolimits="true"/>
+  <option integrator="RK4"/>
+  <visual>
+    <quality shadowsize="2048"/>
+    <headlight ambient="0.4 0.4 0.4" diffuse="0.8 0.8 0.8" specular="0.1 0.1 0.1"/>
+    <map znear="0.02"/>
+  </visual>
+  <default class="main">
+    <joint limited="true" armature="1" damping="1"/>
+    <geom condim="1" solimp="0.8 0.8 0.01 0.5 2" margin="0.001" material="self"/>
+    <general ctrllimited="true" ctrlrange="-0.4 0.4"/>
+  </default>
+  <asset>
+    <texture type="skybox" name="skybox" builtin="gradient" mark="random" rgb1="0.4 0.6 0.8" rgb2="0 0 0" markrgb="1 1 1" width="800" height="4800"/>
+    <texture type="2d" name="grid" builtin="checker" mark="edge" rgb1="0.1 0.2 0.3" rgb2="0.2 0.3 0.4" markrgb="0.2 0.3 0.4" width="300" height="300"/>
+    <material name="grid" texture="grid" texuniform="true" reflectance="0.2"/>
+    <material name="self" rgba="0.7 0.5 0.3 1"/>
+    <material name="self_default" rgba="0.7 0.5 0.3 1"/>
+    <material name="self_highlight" rgba="0 0.5 0.3 1"/>
+    <material name="effector" rgba="0.7 0.4 0.2 1"/>
+    <material name="effector_default" rgba="0.7 0.4 0.2 1"/>
+    <material name="effector_highlight" rgba="0 0.5 0.3 1"/>
+    <material name="decoration" rgba="0.3 0.5 0.7 1"/>
+    <material name="eye" rgba="0 0.2 1 1"/>
+    <material name="target" rgba="0.6 0.3 0.3 1"/>
+    <material name="target_default" rgba="0.6 0.3 0.3 1"/>
+    <material name="target_highlight" rgba="0.6 0.3 0.3 0.4"/>
+    <material name="site" rgba="0.5 0.5 0.5 0.3"/>
+  </asset>
+  <worldbody>
+    <geom name="floor" size="20 20 0.125" type="plane" condim="3" material="grid"/>
+    <light pos="0 0 1.3" dir="-0.5547 0 -0.83205" directional="true" cutoff="100" exponent="1" diffuse="1 1 1" specular="0.1 0.1 0.1"/>
+    <body name="torso" pos="0 0 1.75" gravcomp="0">
+      <joint name="rootx" pos="0 0 -1.75" axis="1 0 0" limited="false" type="slide" armature="0" damping="0"/>
+      <joint name="rootz" pos="0 0 -1.75" axis="0 0 1" limited="false" type="slide" ref="1.75" armature="0" damping="0"/>
+      <joint name="rooty" pos="0 0 0" axis="0 1 0" limited="false" armature="0" damping="0"/>
+      <geom name="torso_geom" size="0.05 0.2" type="capsule" friction="0.9 0.005 0.0001"/>
+      <camera name="tilted" pos="2.7 3 -0.75" quat="0.660169 -0.660169 0.253331 -0.253331" mode="trackcom"/>
+      <camera name="track" pos="0 3 -0.75" quat="0.707107 -0.707107 0 0" mode="trackcom"/>
+      <body name="thigh" pos="0 0 -0.2" gravcomp="0">
+        <joint name="thigh_joint" pos="0 0 0" axis="0 -1 0" range="-2.61799 0"/>
+        <geom name="thigh_geom" size="0.05 0.225" pos="0 0 -0.225" type="capsule" friction="0.9 0.005 0.0001"/>
+        <body name="leg" pos="0 0 -0.7" gravcomp="0">
+          <joint name="leg_joint" pos="0 0 0.25" axis="0 -1 0" range="-2.61799 0"/>
+          <geom name="leg_geom" size="0.04 0.25" type="capsule" friction="0.9 0.005 0.0001"/>
+          <body name="lower_leg" pos="0 0 -0.5" gravcomp="0">
+            <joint name="lower_leg_joint" pos="0 0 0.25" axis="0 -1 0" range="-2.61799 0"/>
+            <geom name="lower_leg_geom" size="0.04 0.25" type="capsule" friction="0.9 0.005 0.0001"/>
+            <body name="foot" pos="0.065 0 -0.25" gravcomp="0">
+              <joint name="foot_joint" pos="-0.065 0 0" axis="0 -1 0" range="-0.785398 0.785398"/>
+              <geom name="foot_geom" size="0.06 0.195" quat="0.707107 0 -0.707107 0" type="capsule" friction="2 0.005 0.0001"/>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <general joint="thigh_joint" ctrlrange="-1 1" gear="200 0 0 0 0 0" actdim="0"/>
+    <general joint="leg_joint" ctrlrange="-1 1" gear="200 0 0 0 0 0" actdim="0"/>
+    <general joint="lower_leg_joint" ctrlrange="-1 1" gear="200 0 0 0 0 0" actdim="0"/>
+    <general joint="foot_joint" ctrlrange="-1 1" gear="200 0 0 0 0 0" actdim="0"/>
+  </actuator>
+</mujoco>

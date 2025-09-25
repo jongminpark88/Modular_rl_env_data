@@ -1,7 +1,7 @@
 <mujoco model="walker_generic">
-   <include file="../../misc/skybox.xml" />
-   <include file="../../misc/visual.xml" />
-   <include file="../../misc/materials.xml" />
+   <include file="../misc/skybox.xml" />
+   <include file="../misc/visual.xml" />
+   <include file="../misc/materials.xml" />
    <compiler angle="degree" coordinate="global" inertiafromgeom="true" />
    <default>
       <joint armature="0.01" damping=".1" limited="true" />

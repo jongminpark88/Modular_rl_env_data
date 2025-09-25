@@ -33,9 +33,9 @@
 
 -->
 <mujoco model="cheetah">
-  <include file="../../misc/skybox.xml" />
-  <include file="../../misc/visual.xml" />
-  <include file="../../misc/materials.xml" />
+  <include file="../misc/skybox.xml" />
+  <include file="../misc/visual.xml" />
+  <include file="../misc/materials.xml" />
   <compiler angle="radian" coordinate="local" inertiafromgeom="true"/>
   <default>
     <joint armature=".1" damping=".01" limited="true" solimplimit="0 .8 .03" solreflimit=".02 1" stiffness="8"/>
