@@ -1,153 +1,301 @@
 # collectors/sac_collect.py
-from __future__ import annotations
-import os, time, numpy as np, torch
-from typing import List, Dict
-import gymnasium as gym
+import os
+import sys
+import argparse
+import shutil
+from datetime import datetime
+import csv
+import json
+import gzip
+from typing import Optional
 
-import utils  # registerEnvs, makeEnvWrapper, getGraphStructure
-from config import XML_DIR, DATA_DIR
+import numpy as np
+
+# 프로젝트 루트 등록
+FILE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJ_ROOT = os.path.abspath(os.path.join(FILE_DIR, ".."))
+if PROJ_ROOT not in sys.path:
+    sys.path.insert(0, PROJ_ROOT)
+
+from config import XML_DIR  # xmls_converted 또는 네가 쓰는 XML 경로
+from stable_baselines3 import SAC
+from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.callbacks import EvalCallback, CallbackList
+from stable_baselines3.common.logger import configure as sb3_configure
+import importlib
+import torch
+
+from collectors.buffer import StreamingRecordingCallback  # 중요: 절대/네임스페이스 import
 
 
-def list_envs_from_xml(xml_dir: str, morphologies: List[str] | None = None):
-    names, graphs = [], {}
-    for fn in sorted(os.listdir(xml_dir)):
-        if not fn.endswith(".xml"):
-            continue
-        if morphologies and not any(m in fn for m in morphologies):
-            continue
-        name = fn[:-4]
-        names.append(name)
-        graphs[name] = utils.getGraphStructure(os.path.join(xml_dir, fn))
-    assert names, "No XMLs found in XML_DIR."
-    return names, graphs
+def make_env(env_module: str, xml_filename: Optional[str] = None, render_mode: Optional[str] = None):
+    """envs.<env_module>.ModularEnv(xml=...) 를 생성한다."""
+    mod = importlib.import_module(f"envs.{env_module}")
+    EnvCls = getattr(mod, "ModularEnv")
+    if xml_filename is None:
+        xml_filename = os.path.join(XML_DIR, f"{env_module}.xml")
+    env = EnvCls(xml=xml_filename, render_mode=render_mode)
+    return env
 
 
-def build_vec_env(env_names: List[str], graphs: Dict[str, List[int]], limb_obs_size: int, seed: int):
+def wrap_vec_env(env, log_dir: Optional[str] = None):
+    """SB3에서 요구하는 Monitor 래핑 + DummyVecEnv (1 env)."""
+    if log_dir is not None:
+        os.makedirs(log_dir, exist_ok=True)
+        env = Monitor(env, filename=os.path.join(log_dir, "monitor.csv"))
+    else:
+        env = Monitor(env)
+    return DummyVecEnv([lambda: env])
+
+
+def map_done_code_from_info(done_flag: bool, info: dict) -> int:
+    """0=미종료, 1=terminated, 2=truncated(TimeLimit 등)"""
+    if not done_flag:
+        return 0
+    if info.get("TimeLimit.truncated", False):
+        return 2
+    return 1
+
+
+def _json_ser(x) -> str:
+    return json.dumps(np.asarray(x).tolist(), separators=(",", ":"))
+
+
+def collect_transitions_stream_csv(
+    env,
+    policy,
+    out_path: str,
+    total_steps: int,
+    seed: Optional[int] = None,
+    gzip_output: bool = True,
+) -> str:
     """
-    Gymnasium AsyncVectorEnv
-    - env_fns: [callable, ...] 각기 다른 morphology
-    - 반환 obs/reward/done 등이 배치(ndarray) 형태
+    전문가/추론 롤아웃 전이를 CSV(.csv.gz)로 스트리밍 저장 (메모리 안전).
     """
-    max_limbs = max(len(graphs[n]) for n in env_names)
-    obs_max_len = max_limbs * limb_obs_size
-    env_fns = [utils.makeEnvWrapper(n, obs_max_len, seed) for n in env_names]
-    vec_env = gym.vector.AsyncVectorEnv(env_fns)  # (num_envs,) batch
-    return vec_env, max_limbs
+    if seed is not None:
+        obs, info = env.reset(seed=seed)
+    else:
+        obs, info = env.reset()
+
+    if gzip_output and not out_path.endswith(".gz"):
+        out_path = out_path + ".gz"
+
+    if gzip_output:
+        fh = gzip.open(out_path, "wt", newline="")
+    else:
+        fh = open(out_path, "w", newline="")
+    writer = csv.writer(fh)
+    writer.writerow(["step", "state", "action", "next_state", "reward", "done_code", "time"])
+
+    step = 0
+    try:
+        for _ in range(total_steps):
+            action, _ = policy.predict(obs, deterministic=True)
+            next_obs, reward, terminated, truncated, info = env.step(action)
+            done_code = 1 if terminated else (2 if truncated else 0)
+            ns = info.get("terminal_observation", next_obs) if (terminated or truncated) else next_obs
+
+            step += 1
+            writer.writerow([
+                step,
+                _json_ser(obs),
+                _json_ser(action),
+                _json_ser(ns),
+                float(reward),
+                int(done_code),
+                datetime.now().isoformat(timespec="seconds"),
+            ])
+
+            if (step % 2000) == 0:
+                fh.flush()
+
+            if terminated or truncated:
+                obs, info = env.reset()
+            else:
+                obs = next_obs
+    finally:
+        fh.flush()
+        fh.close()
+
+    return out_path
 
 
-def slice_valid_obs(obs_padded_1d: np.ndarray, num_limbs: int, limb_obs_size: int) -> np.ndarray:
-    return obs_padded_1d[: num_limbs * limb_obs_size].astype(np.float32, copy=False)
+def train_sac(env_name: str, total_timesteps: int, xml: Optional[str], seed: int, render: bool, device: str):
+    """
+    SAC 학습:
+    - logs/<env_name>.csv
+    - checkpoint/<env_name>_best.pt
+    - data/<env_name>_*_train.csv.gz (전체 학습 전이; 스트리밍)
+    - data/<env_name>_*_expert.csv.gz (베스트 정책 롤아웃 전이; 스트리밍)
+    """
+    ckpt_dir = os.path.join(PROJ_ROOT, "checkpoint")
+    logs_dir = os.path.join(PROJ_ROOT, "logs")
+    data_dir = os.path.join(PROJ_ROOT, "data")
+    os.makedirs(ckpt_dir, exist_ok=True)
+    os.makedirs(logs_dir, exist_ok=True)
+    os.makedirs(data_dir, exist_ok=True)
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    sb3_log_dir = os.path.join(logs_dir, f"{env_name}_{ts}")
+    os.makedirs(sb3_log_dir, exist_ok=True)
+
+    render_mode = "human" if render else None
+    train_env = make_env(env_name, xml_filename=xml, render_mode=render_mode)
+    eval_env = make_env(env_name, xml_filename=xml, render_mode=None)
+
+    train_env_vec = wrap_vec_env(train_env, log_dir=sb3_log_dir)
+    eval_env_vec = wrap_vec_env(eval_env, log_dir=None)
+
+    logger = sb3_configure(sb3_log_dir, ["csv"])
+
+    # 디바이스 표시
+    print(f"[INFO] Using device: {device} (torch={torch.__version__})")
+
+    model = SAC(
+        policy="MlpPolicy",
+        env=train_env_vec,
+        verbose=1,
+        tensorboard_log=None,
+        seed=seed,
+        device=device,  # MPS/CUDA/CPU
+    )
+    model.set_logger(logger)
+
+    # 콜백: 평가 + CSV 스트리밍 기록
+    best_tmp_dir = os.path.join(ckpt_dir, f"{env_name}_best_tmp")
+    eval_cb = EvalCallback(
+        eval_env_vec,
+        best_model_save_path=best_tmp_dir,
+        log_path=sb3_log_dir,
+        eval_freq=max(10000, total_timesteps // 50),
+        n_eval_episodes=5,
+        deterministic=True,
+        render=False,
+        verbose=1,
+    )
+    rec_cb = StreamingRecordingCallback(
+        save_dir=data_dir,
+        env_name=env_name,
+        xml_path=(xml or os.path.join(XML_DIR, f"{env_name}.xml")),
+        total_steps_hint=total_timesteps,
+        gzip_output=True,
+        flush_every=2000,
+        verbose=0,
+    )
+    callbacks = CallbackList([eval_cb, rec_cb])
+
+    # 진행바 사용 (tqdm, rich 필요)
+    model.learn(total_timesteps=total_timesteps, callback=callbacks, progress_bar=True)
+
+    # 베스트 모델 백업
+    best_zip = os.path.join(best_tmp_dir, "best_model.zip")
+    if not os.path.exists(best_zip):
+        model.save(best_zip)
+
+    best_pt = os.path.join(ckpt_dir, f"{env_name}_best.pt")
+    shutil.copyfile(best_zip, best_pt)
+    print(f"[OK] Best checkpoint saved to: {best_pt}  (SB3 zip 포맷)")
+
+    # 학습 로그 progress.csv를 고정 경로로 복사
+    src_progress = os.path.join(sb3_log_dir, "progress.csv")
+    dst_csv = os.path.join(logs_dir, f"{env_name}.csv")
+    try:
+        shutil.copyfile(src_progress, dst_csv)
+        print(f"[OK] Logs saved to: {dst_csv}")
+    except Exception as e:
+        print(f"[WARN] Could not copy progress.csv -> {dst_csv}: {e}")
+
+    # 학습 전이 CSV 경로 보고
+    print(f"[OK] Training transitions streamed to: {rec_cb.out_path}")
+
+    # --- 베스트 모델 로드 & 전문가 롤아웃을 CSV로 스트리밍 저장 ---
+    best_model = SAC.load(best_zip, device=device)
+    try:
+        best_model.set_env(eval_env_vec)
+    except Exception:
+        pass
+
+    rollout_env = make_env(env_name, xml_filename=xml, render_mode=None)
+    expert_base = os.path.join(data_dir, f"{env_name}_{ts}_expert.csv")
+    expert_csv_path = collect_transitions_stream_csv(
+        rollout_env, best_model, out_path=expert_base,
+        total_steps=total_timesteps, seed=seed, gzip_output=True
+    )
+    print(f"[OK] Expert transitions streamed: {expert_csv_path}")
+
+    train_env_vec.close()
+    eval_env_vec.close()
+    rollout_env.close()
 
 
-def collect_transitions_with_sac(
-    sac_policy,                   # sac_policy.act(obs_valid)-> np.ndarray in [-1,1]^L
-    out_dir: str = DATA_DIR,
-    max_steps: int = 200_000,
-    max_episode_steps: int = 1000,   # registerEnvs에 전달
-    seed: int = 0,
-    morphologies: List[str] | None = None,
-    save_chunk: int = 20_000,
-):
-    os.makedirs(out_dir, exist_ok=True)
+def inference_sac(env_name: str, xml: Optional[str], checkpoint_path: str, steps: int, seed: int, render: bool, device: str):
+    """
+    체크포인트(.pt/.zip)로 추론만 수행:
+    - data/<env_name>_*_inference.csv.gz 에 전이 저장 (스트리밍)
+    """
+    data_dir = os.path.join(PROJ_ROOT, "data")
+    os.makedirs(data_dir, exist_ok=True)
 
-    # 1) XML → env list & graphs
-    env_names, graphs = list_envs_from_xml(XML_DIR, morphologies)
-    print(f"[collect] envs: {env_names}")
+    if not os.path.exists(checkpoint_path):
+        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
-    # 2) register → limb_obs_size, max_action
-    limb_obs_size, max_action = utils.registerEnvs(env_names, max_episode_steps, custom_xml=False)
-    print(f"[collect] limb_obs_size={limb_obs_size}, max_action={max_action}")
+    # 지정 디바이스로 로드
+    model = SAC.load(checkpoint_path, device=device)
 
-    # 3) AsyncVectorEnv 생성
-    env, max_limbs = build_vec_env(env_names, graphs, limb_obs_size, seed)
-    np.random.seed(seed); torch.manual_seed(seed)
+    render_mode = "human" if render else None
+    env = make_env(env_name, xml_filename=xml, render_mode=render_mode)
 
-    # 4) reset (Gymnasium batched)
-    obs_batch, info_batch = env.reset(seed=seed)  # obs_batch: (N, obs_max_len)
+    # (선택) vec-env 세팅 시도
+    try:
+        model.set_env(wrap_vec_env(make_env(env_name, xml_filename=xml, render_mode=None)))
+    except Exception:
+        pass
 
-    # 5) 버퍼
-    buf = {n: {k: [] for k in ["obs","act","rew","next_obs","done"]} for n in env_names}
-    num_envs = len(env_names)
-
-    def flush(force=False):
-        for idx, n in enumerate(env_names):
-            if not buf[n]["done"]:
-                continue
-            if not force and len(buf[n]["done"]) < save_chunk:
-                continue
-            ts = int(time.time())
-            path = os.path.join(out_dir, f"{n}_{ts}_{len(buf[n]['done'])}.npz")
-            np.savez(
-                path,
-                obs=np.asarray(buf[n]["obs"], dtype=np.float32),
-                act=np.asarray(buf[n]["act"], dtype=np.float32),
-                rew=np.asarray(buf[n]["rew"], dtype=np.float32),
-                next_obs=np.asarray(buf[n]["next_obs"], dtype=np.float32),
-                done=np.asarray(buf[n]["done"], dtype=np.float32),
-            )
-            for k in buf[n]: buf[n][k].clear()
-            print(f"[flush] saved {path}")
-
-    total = 0
-    while total < max_steps:
-        # 6) 각 env별 유효 obs → SAC → 액션 만들고 패딩(벡터env 입력은 (N, max_limbs))
-        act_valid_list = []
-        for i, name in enumerate(env_names):
-            L = len(graphs[name])
-            obs_valid = slice_valid_obs(obs_batch[i], L, limb_obs_size)
-            a = sac_policy.act(obs_valid)             # [-1,1]^L
-            a = np.clip(a, -1.0, 1.0) * max_action    # scale
-            # 유효 행동 따로 저장해두고, 벡터env 입력용 패딩 만들어서 넣음
-            act_valid_list.append(a.astype(np.float32))
-
-        # 벡터env 입력(패딩)
-        actions_batched = np.zeros((num_envs, max_limbs), dtype=np.float32)
-        for i, a_valid in enumerate(act_valid_list):
-            actions_batched[i, :a_valid.size] = a_valid
-
-        # 7) step (Gymnasium batched)
-        next_obs_batch, rew_batch, terminated_batch, truncated_batch, info_batch = env.step(actions_batched)
-        done_batch = np.logical_or(terminated_batch, truncated_batch)
-
-        # 8) 전이 저장(개별 env별)
-        for i, name in enumerate(env_names):
-            L = len(graphs[name])
-            obs_valid      = slice_valid_obs(obs_batch[i],      L, limb_obs_size)
-            next_obs_valid = slice_valid_obs(next_obs_batch[i], L, limb_obs_size)
-            a_valid        = act_valid_list[i]
-
-            buf[name]["obs"].append(obs_valid)
-            buf[name]["act"].append(a_valid)
-            buf[name]["rew"].append(np.float32(rew_batch[i]))
-            buf[name]["next_obs"].append(next_obs_valid)
-            buf[name]["done"].append(np.float32(done_batch[i]))
-
-        total += num_envs
-        obs_batch = next_obs_batch
-        flush(False)
-
-    flush(True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_base = os.path.join(data_dir, f"{env_name}_{ts}_inference.csv")
+    csv_path = collect_transitions_stream_csv(
+        env, model, out_path=out_base, total_steps=steps, seed=seed, gzip_output=True
+    )
+    print(f"[OK] Inference transitions streamed: {csv_path}")
     env.close()
-    print("[collect] done.")
 
 
-# 예시용 더미 정책 (실사용시 policies.sac.Policy로 교체)
-class DummySACPolicy:
-    def __init__(self, limb_obs_size: int = 19):
-        self.limb_obs_size = limb_obs_size
-    def act(self, obs_valid: np.ndarray) -> np.ndarray:
-        L = len(obs_valid) // self.limb_obs_size
-        return np.random.uniform(-1.0, 1.0, size=(L,)).astype(np.float32)
+def main():
+    parser = argparse.ArgumentParser(description="Train or Inference SAC (SB3) per environment and save checkpoint/logs/transitions")
+    parser.add_argument("--mode", choices=["train", "inference"], required=True, help="train 또는 inference")
+    parser.add_argument("--env", type=str, required=True, help="envs/<name>.py 의 <name> (예: hopper_4, cheetah_3_balanced, walker_5_main)")
+    parser.add_argument("--xml", type=str, default=None, help="사용할 XML 경로 (미지정 시 config.XML_DIR/<env>.xml)")
+    parser.add_argument("--steps", type=int, default=2_000_000, help="학습 혹은 추론 스텝 수")
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--render", action="store_true", help="렌더링(human)")
+    parser.add_argument("--checkpoint", type=str, default=None, help="inference 모드에서 필수: 체크포인트(.pt/.zip)")
+    parser.add_argument("--device", type=str, default="auto", help="PyTorch 디바이스: 'auto', 'cpu', 'cuda', 'cuda:0', 'mps' 등")
+    args = parser.parse_args()
+
+    # 디바이스 문자열만 SB3에 전달
+    if args.mode == "train":
+        train_sac(
+            env_name=args.env,
+            total_timesteps=args.steps,
+            xml=args.xml,
+            seed=args.seed,
+            render=args.render,
+            device=args.device
+        )
+    else:
+        if not args.checkpoint:
+            raise ValueError("inference 모드에서는 --checkpoint 가 필수입니다.")
+        inference_sac(
+            env_name=args.env,
+            xml=args.xml,
+            checkpoint_path=args.checkpoint,
+            steps=args.steps,
+            seed=args.seed,
+            render=args.render,
+            device=args.device,
+        )
 
 
 if __name__ == "__main__":
-    policy = DummySACPolicy(limb_obs_size=19)  # modular_env 기준 19
-    collect_transitions_with_sac(
-        sac_policy=policy,
-        out_dir=DATA_DIR,
-        max_steps=50_000,
-        max_episode_steps=1000,
-        seed=42,
-        morphologies=None,
-        save_chunk=10_000,
-    )
+    main()

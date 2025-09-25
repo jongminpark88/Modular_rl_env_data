@@ -1,5 +1,6 @@
 import numpy as np
-import mujoco                     
+import mujoco
+from gymnasium import spaces
 from gymnasium import utils as gym_utils
 from gymnasium.envs.mujoco import MujocoEnv
 from utils import quat2expmap
@@ -16,6 +17,14 @@ class ModularEnv(MujocoEnv, gym_utils.EzPickle):
         self.xml = xml
         super().__init__(model_path=xml, frame_skip=4, observation_space=None, **kwargs )
         gym_utils.EzPickle.__init__(self, xml)
+
+        mujoco.mj_forward(self.model, self.data)
+        
+        obs0 = self._get_obs()
+        obs0 = np.asarray(obs0, dtype=np.float32)
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=obs0.shape, dtype=np.float32)
+
+
 
     def step(self, a):
         posbefore = self.data.qpos[0]
