@@ -18,6 +18,7 @@ if PROJ_ROOT not in sys.path:
     sys.path.insert(0, PROJ_ROOT)
 
 from config import XML_DIR  # xmls_converted 또는 네가 쓰는 XML 경로
+from config import DATA_DIR
 from stable_baselines3 import SAC
 from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.monitor import Monitor
@@ -131,9 +132,9 @@ def train_sac(env_name: str, total_timesteps: int, xml: Optional[str], seed: int
     - data/<env_name>_*_train.csv.gz (전체 학습 전이; 스트리밍)
     - data/<env_name>_*_expert.csv.gz (베스트 정책 롤아웃 전이; 스트리밍)
     """
-    ckpt_dir = os.path.join(PROJ_ROOT, "checkpoint")
-    logs_dir = os.path.join(PROJ_ROOT, "logs")
-    data_dir = os.path.join(PROJ_ROOT, "data")
+    ckpt_dir = os.path.join(DATA_DIR, "checkpoint")
+    logs_dir = os.path.join(DATA_DIR, "log")
+    data_dir = os.path.join(DATA_DIR, "data")
     os.makedirs(ckpt_dir, exist_ok=True)
     os.makedirs(logs_dir, exist_ok=True)
     os.makedirs(data_dir, exist_ok=True)
