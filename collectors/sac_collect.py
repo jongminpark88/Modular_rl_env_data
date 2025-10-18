@@ -270,7 +270,7 @@ def main():
     parser.add_argument("--env", type=str, required=True, help="envs/<name>.py 의 <name> (예: hopper_4, cheetah_3_balanced, walker_5_main)")
     parser.add_argument("--xml", type=str, default=None, help="사용할 XML 경로 (미지정 시 config.XML_DIR/<env>.xml)")
     parser.add_argument("--steps", type=int, default=2_000_000, help="학습 혹은 추론 스텝 수")
-    parser.add_argument("--epxert_steps", type=int, default=2_000_000, help="학습 혹은 추론 스텝 수")
+    parser.add_argument("--expert_steps", type=int, default=2_000_000, help="학습 혹은 추론 스텝 수")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--render", action="store_true", help="렌더링(human)")
     parser.add_argument("--checkpoint", type=str, default=None, help="inference 모드에서 필수: 체크포인트(.pt/.zip)")
