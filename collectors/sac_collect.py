@@ -124,7 +124,7 @@ def collect_transitions_stream_csv(
     return out_path
 
 
-def train_sac(env_name: str, total_timesteps: int, xml: Optional[str], seed: int, render: bool, device: str):
+def train_sac(env_name: str, total_timesteps: int, total_expert_timesteps: int, xml: Optional[str], seed: int, render: bool, device: str):
     """
     SAC 학습:
     - logs/<env_name>.csv
@@ -223,7 +223,7 @@ def train_sac(env_name: str, total_timesteps: int, xml: Optional[str], seed: int
     expert_base = os.path.join(data_dir, f"{env_name}_{ts}_expert.csv")
     expert_csv_path = collect_transitions_stream_csv(
         rollout_env, best_model, out_path=expert_base,
-        total_steps=total_timesteps, seed=seed, gzip_output=True
+        total_steps=total_expert_timesteps, seed=seed, gzip_output=True
     )
     print(f"[OK] Expert transitions streamed: {expert_csv_path}")
 
