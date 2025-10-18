@@ -282,7 +282,7 @@ def main():
         train_sac(
             env_name=args.env,
             total_timesteps=args.steps,
-            total_expert_timesteps=args.epxert_steps,
+            total_expert_timesteps=args.expert_steps,
             xml=args.xml,
             seed=args.seed,
             render=args.render,
