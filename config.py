@@ -13,4 +13,4 @@ BASE_MODULAR_ENV_PATH = os.path.join(ENV_DIR, "modular_env.py")
 # 수집된 전이 저장 경로
 # DATA_DIR = os.path.join(ROOT_DIR, "data")
 # os.makedirs(DATA_DIR, exist_ok=True)
-DATA_DIR = '/dataset/usr012/jmpark/Moudlar_data'
+DATA_DIR = '/dataset/usr012/jmpark/Modular_data_collect_humanoid'
