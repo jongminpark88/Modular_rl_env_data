@@ -38,13 +38,13 @@ class ModularEnv(MujocoEnv, gym_utils.EzPickle):
 
     def _get_obs(self):
         def limb_type_vec(b: str):
-            if 'hip' in b:
+            if 'thigh' in b: # hip
                 return np.array((1, 0, 0, 0), np.float32)
-            elif 'knee' in b:
+            elif 'shin' in b: # knee
                 return np.array((0, 1, 0, 0), np.float32)
-            elif 'shoulder' in b:
+            elif 'upper' in b: # shoulder
                 return np.array((0, 0, 1, 0), np.float32)
-            elif 'elbow' in b:
+            elif 'lower' in b: # elbow
                 return np.array((0, 0, 0, 1), np.float32)
             else:
                 return np.array((0, 0, 0, 0), np.float32)
