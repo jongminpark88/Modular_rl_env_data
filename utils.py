@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import numpy as np
 import gymnasium as gym
-from gymnasium.envs.registration import register
+from gymnasium.envs.registration import register, registry
 from shutil import copyfile
 import xmltodict
 
@@ -45,30 +45,27 @@ def registerEnvs(env_names, max_episode_steps, custom_xml):
     limb_obs_size, max_action = None, None
     for xml in paths_to_register:
         env_name = os.path.basename(xml)[:-4]
-        env_file = env_name  # envs/{env_file}.py 에 ModularEnv 있어야 함
 
-        # env 파일이 없으면 템플릿 복사
-        dst_py = os.path.join(ENV_DIR, f"{env_name}.py")
-        if not os.path.exists(dst_py):
-            copyfile(BASE_MODULAR_ENV_PATH, dst_py)
-
+        env_id = f"envs/{env_name}-v0"
         params = {"xml": os.path.abspath(xml)}
 
-        register(
-            id=f"envs:{env_name}-v0",
-            entry_point=f"envs.{env_file}:ModularEnv",
-            max_episode_steps=max_episode_steps,
-            kwargs=params,
-        )
+        if env_id not in registry:
+            register(
+                id=env_id,
+                entry_point=f"envs_converted.{env_name}:ModularEnv",
+                max_episode_steps=max_episode_steps,
+                kwargs=params,
+            )
 
         # limb_obs_size, max_action 추출 (Gymnasium)
-        env = wrappers.IdentityWrapper(gym.make(f"envs:{env_name}-v0"))
+        env = wrappers.IdentityWrapper(gym.make(f"envs/{env_name}-v0"))
         # Gymnasium reset tuple
         obs, info = env.reset()
+        num_limbs = env.num_limbs
         limb_obs_size = env.limb_obs_size
         max_action = env.max_action
 
-    return limb_obs_size, max_action
+    return num_limbs, limb_obs_size, max_action
 
 
 def quat2expmap(q):

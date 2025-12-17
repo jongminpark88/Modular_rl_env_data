@@ -80,9 +80,12 @@ class ModularEnvWrapper(gym.Wrapper):
 
 class IdentityWrapper(gym.Wrapper):
     def __init__(self, env):
+        while hasattr(env, "env"):
+            env = env.env
         super().__init__(env)
+
         obs, info = self.env.reset()
-        self.num_limbs = len(self.env.model.body_names[1:])
+        self.num_limbs = int(self.env.model.nbody) - 1
         self.limb_obs_size = obs.shape[0] // self.num_limbs
         self.max_action = float(self.env.action_space.high[0])
 
